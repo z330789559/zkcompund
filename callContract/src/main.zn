@@ -1,0 +1,31 @@
+//!
+//! The 'callContract' contract entry.
+//!
+mod lib;
+use self::lib::animal;
+use tst::Tst;
+struct Test;
+contract CallContract  {
+
+
+    pub fn new(value: u64) -> Self {
+        Self
+    }
+    pub fn get(self,t: Tst)-> u64{
+          t.get()
+    }
+}
+
+#[test]
+fn struct_test(){
+    let a=Test;
+    dbg!("test is ok");
+}
+
+// #[test]
+// fn test_get(){
+//     let _contract=CallContract::new(20 as u64);
+//     let _tst=Tst::new(30 as u64);
+//     dbg!("{}",_contract.get(_tst));
+//     require(_contract.get(_tst)==20,"div test fail ");
+// }

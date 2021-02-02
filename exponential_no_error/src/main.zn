@@ -1,0 +1,166 @@
+//! auther keivn
+//! The 'ExponentialNoError' contract entry.
+//!
+pub mod constants;
+use constants::EXPSCALE;
+use constants::DOUBLE_SCALE;
+pub struct Exp {
+     mantissa:u248,
+}
+
+pub struct Double {
+     mantissa:u248,
+}
+
+contract ExponentialNoError {
+
+    pub fn new() -> Self {
+        Self
+    }
+   /**
+     * @dev Truncates the given exp to a whole number value.
+     *      For example, truncate(Exp{mantissa: 15 * expScale}) = 15
+     */
+    pub fn truncate(self,exp:Exp) ->u248 {
+    
+         exp.mantissa / EXPSCALE
+    }
+
+     /**
+     * @dev Multiply an Exp by a scalar, then truncate to return an unsigned integer.
+     */
+   pub fn mul_ScalarTruncate(self, a:Exp,  scalar :u248)-> u248{
+        let product:Exp = self.mul_exp_u(a, scalar);
+        self.truncate(product)
+    }
+     /**
+     * @dev Multiply an Exp by a scalar, truncate, then add an to an unsigned integer, returning an unsigned integer.
+     */
+    pub fn mul_ScalarTruncateAddUInt(self,a:Exp,scalar:u248, addend:u248) ->u248{
+        let product:Exp = self.mul_exp_u(a, scalar);
+         self.add_u_u(self.truncate(product), addend)
+    }
+
+ /**
+     * @dev Checks if first Exp is less than second Exp.
+     */
+    pub fn lessThanExp(self,left:Exp, right:Exp)->bool {
+         left.mantissa < right.mantissa
+    }
+
+  /**
+     * @dev Checks if left Exp <= right Exp.
+     */
+    pub fn lessThanOrEqualExp(self,left:Exp, right:Exp)->bool{
+         left.mantissa <= right.mantissa
+    }
+
+    /**
+     * @dev Checks if left Exp > right Exp.
+     */
+    pub fn greaterThanExp(self,left:Exp,right:Exp)->bool{
+         left.mantissa > right.mantissa
+    }
+
+  /**
+     * @dev returns true if Exp is exactly zero
+     */
+    pub fn  isZeroExp(self,value:Exp)->bool{
+         value.mantissa == 0
+    }
+
+    pub fn safe224(self,n:u248)->u224 {
+        require(n <2 as u248<<224, "safe224 fail");
+        n as u224
+    }
+
+    pub fn safe32(self,n:u248)->u32 {
+
+        require(n < (2 as u248<<32), "safe32 fail");
+         n as u32
+    }
+
+
+
+    fn mul_exp_exp(self,a :Exp,b:Exp) ->Exp {
+            Exp{mantissa: self.mul_u_u(a.mantissa, b.mantissa) / EXPSCALE}
+        }
+
+    fn mul_exp_u(self,a: Exp ,b:u248) -> Exp {
+         Exp{mantissa: self.mul_u_u(a.mantissa, b)}
+    }
+
+    fn  mul_u_u(self,a:u248,b:u248)->u248 {
+
+       if (a == 0 || b == 0) {
+             0 as u248
+        }else{
+         let c = a * b;
+        require(c / a == b, "multiplication overflow");
+         c
+        }
+    }
+
+  fn add_exp_exp(self,a:Exp, b:Exp)->Exp{
+         Exp{mantissa: self.add_u_u(a.mantissa, b.mantissa)}
+    }
+
+
+ fn  add_u_u(self,a:u248,b:u248)->u248 {
+         let c = a + b;
+        require(c >= a, "addition overflow");
+         c
+    }
+fn div_u_u(self,a:u248,b:u248)->u248{
+    require(b > 0, "div_u_u fail");
+        a / b
+}
+     pub fn  fraction(self,a:u248, b:u248)->Double {
+         Double{mantissa: self.div_u_u(self.mul_u_u(a, DOUBLE_SCALE), b)}
+    }
+
+}
+
+#[test]
+fn test_truncate(){
+    let exp= Exp{
+        mantissa:2000000000000000000 as u248
+        };
+    let _contract =ExponentialNoError::new();
+    let c=_contract.truncate(exp);
+    dbg!("{}",c);
+    require(c==2,"test truncate fail");
+
+}
+
+#[test]
+fn test_mul_ScalarTruncate(){
+        let exp= Exp{
+        mantissa:2000000000000000000 as u248,
+        };
+        let b:u248=2000000000000000000 as u248;
+        let _contract =ExponentialNoError::new();
+        let c=_contract.mul_ScalarTruncate(exp,b);
+        dbg!("{}",c);
+            require(c==4 * EXPSCALE,"test truncate fail");
+}
+#[test]
+fn test_mul_ScalarTruncateAddUInt(){
+        let exp= Exp{
+        mantissa:2000000000000000000 as u248,
+        };
+        let b:u248=2000000000000000000 as u248;
+        let c:u248=2000000000000000000 as u248;   
+        let _contract =ExponentialNoError::new();
+        
+       let d=_contract.mul_ScalarTruncateAddUInt(exp,b,c);
+       dbg!("{}",d);
+        require(d==6* EXPSCALE,"test ScalarTruncateAddUInt fail");
+}
+#[test]
+fn test_safe224(){
+           let a=64 as u248;
+          let _contract =ExponentialNoError::new();
+        //   dbg!("dw{}",2 as u248 <<32);
+         require(_contract.safe32(a)==64,"test test_safe224 fail");
+}

@@ -1,0 +1,4 @@
+[project]
+name = 'initial-test-20201230083042'
+type = 'contract'
+version = '1.1.0'

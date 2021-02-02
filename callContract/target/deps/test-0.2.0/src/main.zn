@@ -1,0 +1,17 @@
+//!
+//! The 'test' contract entry.
+//!
+
+contract Test {
+    pub value: u64;
+
+    pub fn new(value: u64) -> Self {
+        Self {
+            value: value,
+        }
+    }
+
+    pub fn get(self) -> u64 {
+        1 as u64
+    }
+}

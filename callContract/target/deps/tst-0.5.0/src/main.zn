@@ -1,0 +1,46 @@
+//!
+//! The 'tst' contract entry.
+//!
+use std::collections::MTreeMap;
+
+struct a {
+    b: u8,
+    c: u8
+}
+
+contract Tst {
+    pub value: u64;
+
+    m: MTreeMap<a, u8>;
+
+    pub fn new(value: u64) -> Self {
+        Self {
+            value: value,
+            m: MTreeMap,
+        }
+    }
+
+    pub fn get(self) -> u64 {
+        20 as u64
+    }
+
+    pub fn getA(mut self) -> u64 {
+        self.value + self.get()
+    }
+
+    pub fn getC(mut self) -> u8 {
+        let _a = a {
+            b: 3,
+            c: 4,
+        };
+
+        self.m.insert(_a, 10);
+
+        let (_c, _) = self.m.get(_a);
+        _c
+    }
+
+    pub fn getb(mut self) -> u8 {
+        math::sum(1,2)
+    }
+}

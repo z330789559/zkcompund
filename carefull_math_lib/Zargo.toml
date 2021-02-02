@@ -1,0 +1,6 @@
+[project]
+name = 'carefull_math_lib'
+type = 'library'
+version = '0.1.0'
+
+[dependencies]

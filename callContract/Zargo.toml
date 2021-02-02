@@ -1,0 +1,13 @@
+[project]
+name = 'callContract'
+type = 'contract'
+version = '0.1.1'
+
+[dependencies]
+tst = '0.5.0'
+math ='0.21.0'
+test_exchange='0.1.2'
+initial-test-20201230083042='1.1.0'
+swap ='0.1.0'
+test='0.2.0'
+carefull_math="0.1.2"

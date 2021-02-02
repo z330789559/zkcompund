@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../zinc/compound-protocol"
+		}
+	],
+	"settings": {}
+}

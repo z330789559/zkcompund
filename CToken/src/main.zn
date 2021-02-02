@@ -1,0 +1,31 @@
+//!
+//! The 'CToken' contract entry.
+//!
+use carefull_math_lib::safe_math::div;
+use carefull_math_lib::safe_math::add;
+use carefull_math_lib::safe_math::sub;
+use carefull_math_lib::safe_math::mul;
+contract Ctoken {
+   pub value:u248;
+    pub fn new(_value:u248) -> Self {
+        Self {
+            value:_value
+        }
+    }
+    pub fn get(self)->u248{
+     self.value
+    }
+    pub fn update(mut self,amout :u248){
+      let  tem=add(self.value,amout);
+          self.value=tem;
+    }
+}
+
+
+#[test]
+fn test_update(){
+    let mut  _contract =Ctoken::new(100 as u248);
+    _contract.update(31 as u248);
+
+    dbg!("{}",_contract.value)
+}

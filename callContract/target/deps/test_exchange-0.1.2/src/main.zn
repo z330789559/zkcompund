@@ -1,0 +1,288 @@
+//!
+//! The 'test_exchange' contract entry.
+//!
+
+use std::collections::MTreeMap;
+use std::crypto::schnorr::Signature;
+
+use std::crypto::sha256;
+use std::convert::to_bits;
+use std::array::pad;
+
+type Address = u160;
+type Balance = u248;
+
+struct Order {
+    owner: Address,
+    tokenS: Address,
+    tokenB: Address,
+    amountS: Balance,
+    amountB: Balance,
+    maxFeeBips: u248,
+    validUntil: u32,
+
+    feeBips: u248,
+    signature: Signature
+}
+
+struct Trade {
+    orderA: Order,
+    orderB: Order,
+    fillS_A: Balance,
+    fillS_B: Balance
+}
+
+const SIGNATURE_HASH_SIZE: u64 = 248;
+const ADDRESS_SIZE: u64 = 160;
+const BALANCE_SIZE: u64 = 248;
+const TIMESTAMP_SIZE: u64 = 32;
+const FIELD_SIZE: u64 = 254;
+const FIELD_SIZE_PADDED: u64 = FIELD_SIZE + 2 as u64;
+const SHA256_HASH_SIZE: u64 = 256;
+
+contract TestExchange {
+    pub exchangeOwner: Address;
+
+    pub protocolFeeBips: u248;
+    pub protocolFeeVault: Address;
+
+    pub exchangeBalances: MTreeMap<u248, Balance>;
+
+    pub tradeHistory: MTreeMap<u248, Balance>;
+
+    pub forceWithdraw: MTreeMap<Address, u64>;
+
+    const FORCE_WITHDRAW_DELAY: u64 = 7 as u64 * 24 * 3600;
+
+    pub fn new(_exchangeOwner: Address) -> Self {
+        require(_exchangeOwner != 0 as Address, "Invalid owner");
+
+        Self {
+            exchangeOwner: _exchangeOwner,
+            protocolFeeBips: 0 as u248,
+            protocolFeeVault: _exchangeOwner,
+            exchangeBalances: MTreeMap,
+            tradeHistory: MTreeMap,
+            forceWithdraw: MTreeMap
+        }
+    }
+
+    pub fn set_exchangeOwner(mut self, _exchangeOwner: Address) {
+        // check if the transaction recipient is the contract address
+        require(zksync::msg.recipient == self.address, "The transfer recipient is not the contract");
+
+        require(zksync::msg.sender == self.exchangeOwner, "Not authorized");
+        self.exchangeOwner = _exchangeOwner;
+    }
+
+    pub fn deposit(mut self, owner: Address) {
+        // check if the transaction recipient is the contract address
+        require(zksync::msg.recipient == self.address, "The transfer recipient is not the contract");
+
+        // check if the deposited amount is not zero
+        require(zksync::msg.amount > 0, "Cannot deposit zero tokens");
+
+        // Add balance
+        self.add_balance(owner, zksync::msg.token_address, zksync::msg.amount);
+    }
+
+    pub fn withdraw(mut self, token: Address, amount: Balance, signature: Signature) {
+        // check if the transaction recipient is the contract address
+        require(zksync::msg.recipient == self.address, "The transfer recipient is not the contract");
+
+        // check that the deposited amount is zero
+        require(zksync::msg.amount == 0, "Cannot deposit tokens");
+
+        // TODO: check force withdrawn or signature of the exchange owner
+
+        // Subtract balance
+        self.sub_balance(zksync::msg.sender, token, amount);
+        // Transfer tokens out
+        self.transfer(zksync::msg.sender, token, amount);
+    }
+
+    pub fn force_withdraw(mut self) {
+        // check if the transaction recipient is the contract address
+        require(zksync::msg.recipient == self.address, "The transfer recipient is not the contract");
+
+        self.forceWithdraw.insert(zksync::msg.sender, /*block.timestamp + FORCE_WITHDRAW_DELAY*/ 0 as u64);
+    }
+
+    // Trade between deposited funds
+    pub fn exchange(
+        mut self,
+        trade: Trade,
+        feeRecipient: Address
+    ) {
+        // check if the transaction recipient is the contract address
+        require(zksync::msg.recipient == self.address, "The transfer recipient is not the contract");
+
+        // Trading can only be done by the exchange owner
+        require(zksync::msg.sender == self.exchangeOwner, "Not authorized");
+
+        // Hash orders
+        let hashA = self.hash_order(trade.orderA);
+        let hashB = self.hash_order(trade.orderB);
+
+        // TODO: link account owner to public keys
+        // Check order signatures
+        //std::crypto::schnorr::Signature::verify(trade.orderA.signature, hashA);
+        //std::crypto::schnorr::Signature::verify(trade.orderB.signature, hashB);
+
+        // Check tokens
+        require(trade.orderA.tokenS == trade.orderB.tokenB, "Tokens need to match");
+        require(trade.orderA.tokenB == trade.orderB.tokenS, "Tokens need to match");
+
+        // Check fill rate
+        require(self.validate_fill_rate(trade.orderA.amountS, trade.orderA.amountB, trade.fillS_A, trade.fillS_B), "Fill rate A incorrect");
+        require(self.validate_fill_rate(trade.orderB.amountS, trade.orderB.amountB, trade.fillS_B, trade.fillS_A), "Fill rate B incorrect");
+        // Also enforce that either both fill amounts are zero or both are non-zero.
+        require((trade.fillS_A == 0 && trade.fillS_B == 0) || (trade.fillS_A != 0 && trade.fillS_B != 0), "Fill rate incorrect");
+
+        // Check fee bips
+        require(trade.orderA.feeBips <= trade.orderA.maxFeeBips, "feeBips <= maxFeeBips");
+        require(trade.orderB.feeBips <= trade.orderB.maxFeeBips, "feeBips <= maxFeeBips");
+
+        // Update/Check trade history
+        self.update_trade_history(trade.orderA, hashA, trade.fillS_A);
+        self.update_trade_history(trade.orderB, hashB, trade.fillS_B);
+
+        // Calculate fees
+        let (feeA, protocolFeeA) = self.calculate_fees(trade.fillS_B, trade.orderA.feeBips, self.protocolFeeBips);
+        let (feeB, protocolFeeB) = self.calculate_fees(trade.fillS_A, trade.orderB.feeBips, self.protocolFeeBips);
+
+        /* Transfers */
+        // Actual trade transfers
+        self._transfer(trade.orderA.owner, trade.orderB.owner, trade.orderA.tokenS, trade.fillS_A);
+        self._transfer(trade.orderB.owner, trade.orderA.owner, trade.orderB.tokenS, trade.fillS_B);
+        // Fees
+        self._transfer(trade.orderA.owner, feeRecipient, trade.orderA.tokenB, feeA);
+        self._transfer(trade.orderB.owner, feeRecipient, trade.orderB.tokenB, feeB);
+        // Protocol fees
+        self._transfer(trade.orderA.owner, self.protocolFeeVault, trade.orderA.tokenB, protocolFeeA);
+        self._transfer(trade.orderB.owner, self.protocolFeeVault, trade.orderB.tokenB, protocolFeeB);
+    }
+
+    fn calculate_fees(self, fillB: Balance, feeBips: Balance, protocolBips: Balance) -> (Balance, Balance) {
+        let protocolFee = (fillB * protocolBips) / 100000;
+        let fee = (fillB * feeBips) / 10000;
+        (fee, protocolFee)
+    }
+
+    fn hash_order(self, order: Order) -> [bool; SIGNATURE_HASH_SIZE] {
+        let mut data = [false; ADDRESS_SIZE + ADDRESS_SIZE + ADDRESS_SIZE + BALANCE_SIZE + BALANCE_SIZE + TIMESTAMP_SIZE];
+        let mut offset = 0 as u64;
+
+        let owner_bits: [bool; ADDRESS_SIZE] = to_bits(order.owner);
+        for i in 0..ADDRESS_SIZE {
+            data[offset + i] = owner_bits[i];
+        }
+        offset += ADDRESS_SIZE;
+
+        let tokenS_bits: [bool; ADDRESS_SIZE] = to_bits(order.tokenS);
+        for i in 0..ADDRESS_SIZE {
+            data[offset + i] = tokenS_bits[i];
+        }
+        offset += ADDRESS_SIZE;
+
+        let tokenB_bits: [bool; ADDRESS_SIZE] = to_bits(order.tokenB);
+        for i in 0..ADDRESS_SIZE {
+            data[offset + i] = tokenB_bits[i];
+        }
+        offset += ADDRESS_SIZE;
+
+        let amountS_bits: [bool; BALANCE_SIZE] = to_bits(order.amountS);
+        for i in 0..BALANCE_SIZE {
+            data[offset + i] = amountS_bits[i];
+        }
+        offset += BALANCE_SIZE;
+
+        let amountB_bits: [bool; BALANCE_SIZE] = to_bits(order.amountB);
+        for i in 0..BALANCE_SIZE {
+            data[offset + i] = amountB_bits[i];
+        }
+        offset += BALANCE_SIZE;
+
+        let validUntil_bits: [bool; TIMESTAMP_SIZE] = to_bits(order.validUntil);
+        for i in 0..TIMESTAMP_SIZE {
+            data[offset + i] = validUntil_bits[i];
+        }
+        offset += TIMESTAMP_SIZE;
+
+        // TODO: hash everything
+
+        let full_hash = sha256(data);
+        full_hash[0..SIGNATURE_HASH_SIZE]
+    }
+
+    // Transfer between deposited funds
+    fn _transfer(mut self, from: Address, to: Address, token: Address, amount: Balance) {
+        self.sub_balance(from, token, amount);
+        self.add_balance(to, token, amount);
+    }
+
+    fn get_balance(self, owner: Address, token: Address) -> Balance {
+        let key = self.calc_balance_key(owner, token);
+        let (value, exists) = self.exchangeBalances.get(key);
+        value
+    }
+
+    fn set_balance(mut self, owner: Address, token: Address, balance: Balance) {
+        let key = self.calc_balance_key(owner, token);
+        self.exchangeBalances.insert(key, balance);
+    }
+
+    fn add_balance(mut self, owner: Address, token: Address, amount: Balance) {
+        let balance = self.get_balance(owner, token);
+        self.set_balance(owner, token, balance + amount);
+    }
+
+    fn sub_balance(mut self, owner: Address, token: Address, amount: Balance) {
+        let balance = self.get_balance(owner, token);
+        self.set_balance(owner, token, balance - amount);
+    }
+
+    fn calc_balance_key(self, owner: Address, token: Address) -> u248 {
+        let mut data = [false; ADDRESS_SIZE + ADDRESS_SIZE];
+
+        let owner_bits: [bool; ADDRESS_SIZE] = to_bits(owner);
+        for i in 0..ADDRESS_SIZE {
+            data[i] = owner_bits[i];
+        }
+
+        let token_bits: [bool; ADDRESS_SIZE] = to_bits(token);
+        for i in 0..ADDRESS_SIZE {
+            data[ADDRESS_SIZE + i] = token_bits[i];
+        }
+
+        let full_hash = sha256(data);
+        std::convert::from_bits_unsigned(full_hash[0..SIGNATURE_HASH_SIZE])
+    }
+
+    fn get_trade_history(self, hash: [bool; SIGNATURE_HASH_SIZE]) -> Balance {
+        let (value, exists) = self.tradeHistory.get(std::convert::from_bits_unsigned(hash));
+        value
+    }
+
+    fn set_trade_history(mut self, hash: [bool; SIGNATURE_HASH_SIZE], filled: Balance) {
+        self.tradeHistory.insert(std::convert::from_bits_unsigned(hash), filled);
+    }
+
+    fn update_trade_history(mut self, order: Order, hash: [bool; SIGNATURE_HASH_SIZE], fillS: Balance) {
+        let filledBefore = self.get_trade_history(hash);
+        let filledAfter = filledBefore + fillS;
+        require(filledAfter <= order.amountS, "Order filled too much");
+        self.set_trade_history(hash, filledAfter);
+    }
+
+    fn validate_fill_rate(self, amountS: Balance, amountB: Balance, fillS: Balance, fillB: Balance) -> bool {
+        // Return true if the fill rate <= 0.1% worse than the target rate
+        // (fillS/fillB) * 1000 <= (amountS/amountB) * 1001
+        (fillS * amountB * 1000) <= (fillB * amountS * 1001)
+    }
+
+    fn validate_fill_limit(self, hash: [bool; SIGNATURE_HASH_SIZE], amountS: Balance, amountB: Balance, fillS: Balance, fillB: Balance) -> bool {
+        let filled = self.get_trade_history(hash);
+        (filled + fillS <= amountS)
+    }
+}

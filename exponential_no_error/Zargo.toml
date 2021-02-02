@@ -1,0 +1,6 @@
+[project]
+name = 'exponential_no_error'
+type = 'contract'
+version = '0.1.6'
+
+[dependencies]

@@ -1,0 +1,18 @@
+struct Animal{
+    name: u160,
+    age: u120,
+
+}
+
+
+impl Animal{
+    fn show(self){
+     dbg!("111");
+    }
+}
+
+#[test]
+fn test_impl(){
+   let mut ani=Animal{name: 21 as u160,age:123 as u120};
+   ani.show();
+}

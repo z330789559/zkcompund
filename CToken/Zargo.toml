@@ -1,0 +1,7 @@
+[project]
+name = 'CToken'
+type = 'contract'
+version = '0.1.7'
+
+[dependencies]
+carefull_math_lib ="0.1.0"

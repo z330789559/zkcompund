@@ -1,0 +1,4 @@
+[project]
+name = 'test_exchange'
+type = 'contract'
+version = '0.1.2'

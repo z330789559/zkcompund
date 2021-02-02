@@ -1,0 +1,4 @@
+    pub const EXPSCALE:u248=1E18;
+    pub const DOUBLE_SCALE:u248=1E36;
+    pub const HALF_EXPSCALE:u248= EXPSCALE/ 2;
+    pub const MANTISSA_ONE:u248 =EXPSCALE;

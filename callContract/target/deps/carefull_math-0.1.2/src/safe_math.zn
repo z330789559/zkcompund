@@ -1,0 +1,104 @@
+
+
+/** function add(uint256 a, uint256 b) internal pure returns (uint256) {
+        uint256 c = a + b;
+        require(c >= a, "SafeMath: addition overflow");
+
+        return c;
+    }
+**
+*/
+pub fn add(a:u248,b:u248)->u248{
+    let c=a+b;
+
+    require(c>=a,"SafeMath: addition overflow");
+     c
+}
+
+    /**
+     * @dev Returns the subtraction of two unsigned integers, reverting on underflow (when the result is negative).
+     *
+     * Counterpart to Solidity's `-` operator.
+     *
+     * Requirements:
+     * - Subtraction cannot underflow.
+     */
+pub fn sub(a:u248,b:u248)->u248{
+     require(b <= a, "SafeMath: subtraction underflow ");
+   let c=a-b;
+   c
+}
+
+
+
+     pub fn mul(a:u248,b:u248)->u248{
+         
+         if(a==0){
+          0 as u248
+         }else{
+                  let mut c =a * b;
+         require(b==c/a,"SafeMath: multiplication overflow");
+                  c 
+         }
+      
+      
+     }
+
+    /**
+     * @dev Returns the integer division of two unsigned integers.
+     *
+     * Reverts with custom message on division by zero. The result is rounded towards zero.
+     * uses an invalid opcode to revert (consuming all remaining gas).
+     *
+     * Requirements:
+     * - The divisor cannot be zero.
+     */
+     pub fn div(a:u248,b:u248)->u248{
+       require(b>0,"SafeMath: division by zero");
+       let c=a/b;
+       c
+         
+     }
+
+     pub fn modf(a:u248,b:u248)->u248{
+     require(b>0,"SafeMath: mod by zero");
+     let c=a % b;
+     c
+
+     }
+
+
+#[test]
+fn add_test(){
+    let a:u248=10;
+    let b:u248=20;
+    require(add(a,b)==30,"add test fail");
+}
+
+#[test]
+fn sub_test(){
+    let a:u248= 20;
+    let b:u248= 10;
+    require(sub(a,b)==10,"sub test fail");
+}
+#[test]
+fn mul_test(){
+     let a:u248= 0;
+    let b:u248= 10;
+    require(mul(a,b)==0,"mul test fail ");
+}
+
+#[test]
+fn div_test(){
+     let a:u248= 20;
+    let b:u248= 10;
+    require(div(a,b)==2,"div test fail ");
+}
+
+
+#[test]
+fn mod_test(){
+     let a:u248= 20;
+    let b:u248= 3;
+    require(modf(a,b)==2,"div test fail ");
+}

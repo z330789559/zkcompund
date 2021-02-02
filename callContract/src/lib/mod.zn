@@ -1,0 +1,3 @@
+pub mod animal;
+
+pub type Address= u160;
