@@ -1,0 +1,22 @@
+
+
+contract Comptroller {
+
+    pub fn transferAllowed(token : CToken, srcAddress : u160, dstAddress : u160, amount: u248) -> bool {
+        true
+    }
+
+    pub fn borrowAllowed(token : CToken, borrower : u160, borrowAmount: u248) -> u248 {
+        0 
+    }
+
+    pub fn repayBorrowAllowed(token : CToken, borrower : u160, borrowAmount: u248) -> u248 {
+        0
+    }
+
+    pub fn redeemAllowed(token : CToken, redeemer : u160, redeemTokens: u248) ->{
+        0
+    }
+
+    
+}

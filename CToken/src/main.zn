@@ -5,8 +5,42 @@ use carefull_math_lib::safe_math::div;
 use carefull_math_lib::safe_math::add;
 use carefull_math_lib::safe_math::sub;
 use carefull_math_lib::safe_math::mul;
+use std::collections::MTreeMap;
+
+type Address = u160;
+
+struct BorrowSnapshot{
+    principal: u248;
+    interestIndex: u248;
+}
+
+struct InterestRateModel {
+
+}
+
 contract Ctoken {
-   pub value:u248;
+    pub value:u248;
+    comptroller : Comptroller;
+    transferAllowances : MTreeMap<Address,MTreeMap<Address, u248>>;
+    accountTokens: MTreeMap<Address, u248>;
+    accountBorrows: MTreeMap<Address, BorrowSnapshot>;
+
+    totalSupply  : u248;
+    totalBorrows : u248;
+    totalReserves : u248;
+    borrowIndex: u248;
+    reserveFactorMantissa: u248;
+
+    initialExchangeRateMantissa: u248;
+
+    interestRateModel: InterestRateModel;
+
+    accrualBlockNumber: u248;
+
+    pendingAdmin: Address;
+
+    
+
     pub fn new(_value:u248) -> Self {
         Self {
             value:_value
@@ -14,11 +48,689 @@ contract Ctoken {
     }
     pub fn get(self)->u248{
      self.value
+     
     }
+
     pub fn update(mut self,amout :u248){
       let  tem=add(self.value,amout);
           self.value=tem;
     }
+
+   
+    pub fn transferTokens(mut self, spender : Address, srcAddress: Address, dstAddress : Address, tokens : u248) -> bool {
+        let allowed = comptroller.transferAllowed(self,srcAddress, dstAddress, tokens);
+        if(!allowed){
+            return false;
+        }
+
+        if(srcAddress == dstAddress){
+            return false;
+        }
+
+        let startingAllowance = 0;
+        if(spender == src){
+            startingAllowance = -1;
+        }else {
+            startingAllowance = transerAllowances.get(srcAddress).get(spender);
+        }
+
+        let allowanceNew = sub(startingAllowance, tokens);
+        let srcTokensNew = sub(accountTokens.get(srcAddress), tokens);
+        let dstTokensNew = add(accountTokens.get(dstAddress), tokens);
+
+        accountTokens.insert(srcAddress, srcTokensNew);
+        accountTokens.insert(dstAddress, dstTokensNew);
+
+        if(startingAllowance != -1){
+            transerAllowances.get(srcAddress).insert(spender, allowanceNew);
+        }
+
+        //emit Transfer
+        //TODO
+
+        true
+
+    }
+
+
+    pub fn transfer(mut self, dstAddress : Address, amount: u248) -> bool{
+         transferTokens(msg.sender, msg.sender, dst, amount)   
+    }
+
+    pub fn transferFrom(mut self, srcAddress : Address, dstAddress : Address, amount : u248) -> bool {
+        transferTokens(msg.sender, srcAddress, dstAddress, amount)
+    }
+
+    pub fn approve(mut self, spender : Address, amount : u248) -> bool {
+        let srcAddress = msg.sender;
+        transerAllowances.get(srcAddress).insert(spender, amount);
+        //emit Approval
+        //TODO
+        true
+    }
+
+    pub fn allowance(mut self, owner : Address, spender : Address) -> u248 {
+        transerAllowances.get(owner).get(spender)
+    }
+
+
+    pub fn balanceOf(mut self, owner : Address) -> u248 {
+        accountTokens.get(owner)
+    }
+
+    pub fn balanceOfUnderlying(mut self, owner : Address) ->  u248{
+        //TODO
+    }
+
+    pub fn getAccountSnapshot(mut self, account:Address) -> (MathError, u248, u248, u248) {
+        let cTokenBalance = accountTokens.get(account);        
+        let mut exchangeRateMantissa = 0;
+
+        let (mErr, borrowBalance)  = borrowBalanceStoredInternal(account);
+        if (mErr != MathError.NO_ERROR){
+            return (mErr, 0, 0, 0);
+        }
+
+        let (mErr, exchangeRateMantissa) = exchangeRateStoredInternal();
+
+        if(mErr != MathError.NO_ERROR){
+            return (MathError.NO_ERROR, 0, 0, 0);
+        }
+
+        (MathError.NO_ERROR, cTokenBalance, borrowBalance, exchangeRateMantissa)
+    }
+   
+
+
+    pub fn getBlockNumber(mut self) -> u248 {
+        1
+    }
+
+    pub fn borrowRatePerBlock(mut self) -> u248 {
+        //TODO
+        interestRateModel.getBorrowRate(getCashPrior(), totalBorrows, totalReserves);
+    }
+
+    pub fn supplyRatePerBlock(mut self) -> u248 {
+         interestRateModel.getSupplyRate(getCashPrior(), totalBorrows, totalReserves, reserveFactorMantissa);
+    }
+
+    pub fn totalBorrowsCurrent(mut self) -> u248 {
+         require(accrueInterest() == MathError.NO_ERROR, "accrue interest failed");
+         totalBorrows
+    }
+
+    pub fn borrowBalanceCurrent(mut self, account : Address) -> u248 {
+        require(accrueInterest() == MathError.NO_ERROR, "accrue interest failed");
+        borrowBalanceStored(account)
+    }
+
+    pub fn borrowBalanceStored(mut self, account : u248) -> u248 {
+        let (mErr, result) = borrowBalanceStoredInternal(account);
+        require(err == MathError.NO_ERROR, "borrowBalanceStored: borrowBalanceStoredInternal failed");
+        result
+    }
+
+    fn borrowBalanceStoredInternal(mut self, account: Address) -> (MathError, u248){
+        let borrowSnapshot = accountBorrows.get(account);
+        if(borrowSnapshot.principal == 0){
+            return (MathError.NO_ERROR, 0);
+        }
+
+        let (mErr, principalTimesIndex) = mul(borrowSnapshot.principal, borrowIndex);
+        if(mErr != MathError.NO_ERROR){
+            return (mErr, 0);
+        }
+
+        let (mErr, result) = div(principalTimesIndex, borrowSnapshot.interestIndex);
+        if(mErr != MathError.NO_ERROR){
+            return (mErr, 0);
+        }
+        (MathError.NO_ERROR, result)
+    }
+
+    
+    pub fn exchangeRateCurrent(mut self) -> u248 {
+        require(accrueInterest() == MathError.NO_ERROR, "accrue interest failed");
+        exchangeRateStored()
+    }
+
+    pub fn exchangeRateStored(mut self) -> u248 {
+        let (mErr, result) = exchangeRateStoredInternal();
+        require(err == MathError.NO_ERROR, "exchangeRateStored: exchangeRateStoredInternal failed");
+        result
+    }
+
+    fn exchangeRateStoredInternal(mut self) -> (MathError, u248){
+        if(totalSupply == 0){
+            (MathError.NO_ERROR, initialExchangeRateMantissa)
+        }else {
+            let totalCash = getCashPrior();
+            //TODO
+            let sum = add(totalCash, totalBorrows);
+            let cashPlusBorrowsMinusReserves = sub(sum, totalReserves);
+            //TODO
+            let (mErr, exchangeRate) = getExp(cashPlusBorrowsMinusReserves, totalSupply);
+            if(mErr != MathError.NO_ERROR){
+                return (mErr, 0);
+            }
+
+            (MathError.NO_ERROR, exchangeRate.mantissa);
+        }
+    }
+
+    pub fn getCash(mut self) -> u248 {
+        getCashPrior()
+    }
+
+
+
+    pub fn accrueInterest(mut self) -> (MathError) {
+        let currentBlockNumber = getBlockNumber();
+        let accrualBlockNumberPrior = accrualBlockNumber;
+
+        if(accrualBlockNumberPrior == currentBlockNumber) {
+            return MathError.NO_ERROR;        
+        }
+
+        let cashPrior = getCashPrior();
+        let borrowsPrior = totalBorrows;
+        let borrowIndexPrior = borrowIndex;
+
+        let borrowRateMantissa = interestRateModel.getBorrowRate(cashPrior, borrowsPrior, reservesPrior);
+
+        let blockDelta = sub(currentBlockNumber, accrualBlockNumberPrior);
+
+        //TODO
+    }
+
+    fn mintInternal(mut self, mintAmount: u248) ->(u248, u248){
+        let err = accrueInterest();
+        if (err != MathError.NO_ERROR){
+            return (err, 0)
+        }
+
+        mintFresh(msg.sender, mintAmount)
+    }
+
+    fn mintFresh(mut self, minter: Address, mintAmount: u248) -> (u248, u248){
+        //TODO
+        let allowed = comptroller.mintAllowed(self, minter, mintAmount);
+        if(allowed != 0){
+            return (0, 0)
+        }
+        if(accrualBlockNumber != getBlockNumber()) {
+            return (0, 0)
+        }
+
+        let (mErr, exchangeRateMantissa) = exchangeRateStoredInternal();
+        if(mErr != MathError.NO_ERROR){
+            return (0, 0)
+        }
+
+        let actualMintAmount = doTransferIn(minter, mintAmount);
+
+        //TODO 
+        let mintTokens = divScalarByExpTruncate(actualMintAmount, exchangeRateMantissa)
+
+        let totalSupplyNew = add(totalSupply, mintTokens);
+
+        let accountTokensNew = add(accountTokens.get(minter), mintTokens);
+
+        totalSupply = totalSupplyNew;
+
+        
+        (MathError.NO_ERROR, actualMintAmount)
+    }
+
+    fn redeemInternal(mut self,redeemTokens : u248) -> u248 {
+        let mErr = accrueInterest();
+        if(mErr != MathError.NO_ERROR){
+            return -1;
+        }
+
+        redeemFresh(msg.sender, redeemTokens, 0)
+    }
+
+    fn redeemUnderlyingInternal(redeemAmount: u248) -> u248{
+        let mErr = accrueInterest();
+        if(mErr != MathError.NO_ERROR){
+            return -1;
+        }
+
+        redeemFresh(msg.sender, 0, redeemAmount)
+    }
+
+    fn redeemFresh(mut self, redeemer : Address, redeemTokensIn : u248, redeemAmountIn: u248) -> u248 {
+        require( redeemTokensIn == 0 || redeemAmountIn == 0, "one of redeemTokensIn or redeemAmountIn must be zero")
+
+        let (mErr, exchangeRateMantissa) exchangeRateStoredInternal();
+
+        if(mErr != MathError.NO_ERROR){
+            return -1;
+        }
+
+        let mut redeemTokens = 0;
+        let mut redeemAmount = 0;
+
+        if(redeemTokensIn > 0) {
+
+            redeemTokens = redeemTokensIn;
+
+            //let (mErr, redeemAmount) = mulScalarTruncate();
+
+        }else {
+
+        }
+
+        //TODO
+        let allowed = comptroller.redeemAllowed(self, redeemer, redeemTokens);
+
+        if(allowed != 0){
+            return -1;
+        }
+
+        if (accrualBlockNumber != getBlockNumber()) {
+            return -1;
+        }
+
+        let totalSupplyNew = sub(totalSupply, redeemTokens);
+
+        let accountTokensNew = sub(accountTokens.get(redeemer), redeemTokens);
+
+        if (getCashPrior() < redeemAmount) {
+            return -1;
+        }
+
+        doTransferOut(redeemer, redeemAmount);
+
+        totalSupply = totalSupplyNew;
+
+        accountTokens.get(redeemer) = accountTokensNew;
+
+        //TODO emit
+
+        comptroller.redeemVerify(self, redeemer, redeemAmount, redeemTokens);
+
+        MathError.NO_ERROR
+
+    }
+
+
+    fn borrowInternal(mut self, borrowAmount : u248) -> u248 {
+        let mErr = accrueInterest();
+        if(mErr != MathError.NO_ERROR){
+            return -1;
+        }
+        borrowFresh(msg.sender, borrowAmount)
+    }
+    
+
+    fn borrowFresh(mut self, borrower : Address, borrowAmount : u248) -> u248 {
+        let mErr = comptroller.borrowAllowed(self, borrower, borrowAmount);
+        if(mErr != 0){
+            return -1;
+        }
+
+        if(accrualBlockNumber != getBlockNumber()){
+            return -1;
+        }
+
+        if (getCashPrior() < borrowAmount) {
+            return -1;
+        }
+
+        let (mErr, accountBorrows) = borrowBalanceStoredInternal(borrower);
+
+        if(mErr != MathError.NO_ERROR){
+            return -1;
+        }
+        let  accountBorrowsNew = add(accountBorrows, borrowAmount);
+
+        let totalBorrowsNew = add(totalBorrows, borrowAmount);
+
+        doTransferOut(borrower, borrowAmount);
+
+        accountBorrows.get[borrower].principal = accountBorrowsNew;
+        accountBorrows.get[borrower].interestIndex = borrowIndex;
+        totalBorrows = totalBorrowsNew;        
+        0
+    }
+
+    fn repayBorrowInternal(mut self, repayAmount : u248)  -> (u248, u248) {
+        let mErr = accrueInterest();
+        if(mErr != MathError.NO_ERROR){
+            return -1;
+        }
+
+        repayBorrowFresh(msg.sender, msg.sender, repayAmount)
+    }
+
+    fn repayBorrowBehalfInternal(borrower : Address, repayAmount: u248) -> (u248, u248) {
+        let mErr = accrueInterest();
+        if(mErr != MathError.NO_ERROR){
+            return -1;
+        }
+        repayBorrowFresh(msg.sender, borrower, repayAmount)
+    }
+
+    fn repayBorrowFresh(mut self, payer:Address, borrower : Address, _repayAmount: u248) -> (u248, u248) {
+        let allowed = comptroller.repayBorrowAllowed(self, payer, borrower, _repayAmount);
+        if(allowed != 0){
+            return (-1, 0);
+        }
+
+        if (accrualBlockNumber != getBlockNumber()) {
+            return (-1, 0);
+        }
+
+        let mut repayAmount = _repayAmount;
+
+        let borrowerIndex = accountBorrows.get(borrower).interestIndex;
+
+        let (mErr, accountBorrows) = borrowBalanceStoredInternal(borrower);
+
+        if(mErr != MathError.NO_ERROR){
+            return (-1, 0);
+        }
+
+        if ( repayAmount  ==  -1){
+            repayAmount = accountBorrows;
+        }
+
+        let actualRepayAmount = doTransferIn(payer, repayAmount);
+
+        let accountBorrowsNew = sub(accountBorrows, actualRepayAmount);
+
+        let totalBorrowsNew = sub(totalBorrows, actualRepayAmount);
+
+        accountBorrows.get(borrower).principal = accountBorrowsNew;
+        accountBorrows.get(borrower).interestIndex = borrowIndex;
+        totalBorrows = totalBorrowsNew;
+        (MathError.NO_ERROR, actualRepayAmount)
+    }
+
+    fn liquidateBorrowInternal(mut self, borrower :Address, repayAmount: u248, cTokenCollateral: CTokenInterface) -> (u248, u248) {
+        let mut mErr = accrueInterest();
+        if(mErr != MathError.NO_ERROR){
+            return (-1, 0);
+        }
+        mErr = cTokenCollateral.accrueInterest();
+
+        if(mErr != MathError.NO_ERROR){
+            return (-1, 0);
+        }
+
+        liquidateBorrowFresh(msg.sender, borrower, repayAmount, cTokenCollateral)
+    }
+
+    fn liquidateBorrowFresh(mut self, liquidator : Address, borrower:Address, repayAmount: u248, cTokenCollateral: CTokenInterface)-> (u248, u248) {
+        let allowed = comptroller.liquidateBorrowAllowed(self, cTokenCollateral, liquidator, borrower, repayAmount);
+        if(allowed != 0){
+            return (-1, 0);            
+        }
+
+        if (accrualBlockNumber != getBlockNumber()) {
+            return (-1, 0);
+        }
+
+        if (cTokenCollateral.accrualBlockNumber() != getBlockNumber()) {
+            return (-1, 0);
+        }
+
+        if(borrower == liquidator){
+            return (-1, 0);
+        }
+
+        if (repayAmount == 0) {
+            return (-1, 0);
+        }
+
+        if (repayAmount == -1) {
+            return (-1, 0);
+        }
+
+        let (amountSeizeError, seizeTokens) = comptroller.liquidateCalculateSeizeTokens(self, cTokenCollateral, actualRepayAmount);
+        require(amountSeizeError == MathError.NO_ERROR, "LIQUIDATE_COMPTROLLER_CALCULATE_AMOUNT_SEIZE_FAILED");
+
+        require(cTokenCollateral.balanceOf(borrower) >= seizeTokens, "LIQUIDATE_SEIZE_TOO_MUCH");
+
+        let mut seizeError = 0;
+
+        if(self == cTokenCollateral) {
+            //???
+            seizeError = seizeInternal(self, liquidator, borrower, seizeTokens);
+        }else {
+            seizeError = cTokenCollateral.seize(liquidator, borrower, seizeTokens);
+        }
+
+        require(seizeError == MathError.NO_ERROR, "token seizure failed");
+
+
+        (MathError.NO_ERROR, actualRepayAmount)
+
+    }
+
+
+    pub fn seize(mut self, liquidator: Address, borrower : Address, seizeTokens: u248) -> u248 {
+        seizeInternal(msg.sender, liquidator, borrower, seizeTokens)
+    }
+
+    fn seizeInternal(seizerToken: Address, liquidator: Address, borrower: Address, seizeTokens: u248)  -> u248 {
+        let allowed = comptroller.seizeAllowed(self, seizerToken, liquidator, borrower, seizeTokens);
+        if(allowed != 0){
+            return -1;            
+        }
+
+        if(borrower == liquidator){
+            return -1;
+        }
+
+        let borrowerTokensNew = sub(accountTokens.get(borrower), seizeTokens);
+
+        let liquidatorTokensNew = add(accountTokens.get(liquidator), seizeTokens);
+
+        accountTokens.get(borrower) = borrowerTokensNew;
+        accountTokens.get(liquidator) = liquidatorTokensNew;
+
+        MathError.NO_ERROR
+    }
+
+    pub fn _setPendingAdmin(newPendingAdmin : Address) -> u248 {
+        if(msg.sender != admin) {
+            return -1;
+        }
+
+        let oldPendingAdmin = pendingAdmin;
+
+        pendingAdmin = newPendingAdmin;
+
+        //emit
+
+        MathError.NO_ERROR
+    }
+
+    pub fn _acceptAdmin() -> u248 {
+        if (msg.sender != pendingAdmin || msg.sender == 0) {
+            return -1;
+        }
+
+        let oldAdmin = admin;
+        let oldPendingAdmin = pendingAdmin;
+
+        admin = pendingAdmin;
+
+        pendingAdmin = 0;
+
+        //emit
+
+        MathError.NO_ERROR
+    }
+
+    pub fn _setComptroller(ComptrollerInterface newComptroller) -> u248{
+        if(msg.sender != admin) {
+            return -1;
+        }
+
+        let ComptrollerInterface oldComptroller = comptroller;
+
+        require(newComptroller.isComptroller(), "marker method returned false");
+
+        comptroller = newComptroller;
+
+        //emit
+
+        MathError.NO_ERROR
+    }
+
+    pub fn _setReserveFactor(newReserveFactorMantissa : u248) -> u248 {
+        let mErr = accrueInterest();
+        if(mErr != MathError.NO_ERROR) {
+            return -1;
+        }
+
+        _setReserveFactorFresh(newReserveFactorMantissa)
+    }
+
+
+    fn _setReserveFactorFresh(newReserveFactorMantissa: u248) -> u248 {
+        if(msg.sender != admin) {
+            return -1;
+        }
+
+        if (accrualBlockNumber != getBlockNumber()) {
+            return -1;
+        }
+
+        if (newReserveFactorMantissa > reserveFactorMaxMantissa) {
+            return -1;
+        }
+
+        let oldReserveFactorMantissa = reserveFactorMantissa;
+
+        reserveFactorMantissa = newReserveFactorMantissa;
+
+        //emit
+
+        MathError.NO_ERROR
+    }
+
+
+    fn _addReservesInternal(addAmount: u248) -> u248 {
+        let mErr = accrueInterest();
+        if(mErr != MathError.NO_ERROR) {
+            return -1;
+        }
+
+        let (error, ) = _addReservesFresh(addAmount);
+        error
+    }
+
+
+    fn _addReservesFresh(addAmount: u248) -> (u248, u248) {
+        
+        if (accrualBlockNumber != getBlockNumber()) {
+            return -1;
+        }
+        let mut actualAddAmount = doTransferIn(msg.sender, addAmount);
+        let mut totalReservesNew = totalReserves + actualAddAmount;
+
+        require(totalReservesNew >= totalReserves, "add reserves unexpected overflow");
+        totalReserves = totalReservesNew;
+
+        //emit
+
+        (MathError.NO_ERROR, actualAddAmount)
+
+    }
+
+    pub _reduceReserves(reduceAmount : u248) -> u248 {
+        let mErr = accrueInterest();
+        if(mErr != MathError.NO_ERROR) {
+            return -1;
+        }
+
+        _reduceReservesFresh(reduceAmount)
+    }
+
+    fn _reduceReservesFresh(reduceAmount : u248) -> u248 {
+        if(msg.sender != admin) {
+            return -1;
+        }
+
+        if (accrualBlockNumber != getBlockNumber()) {
+            return -1;
+        }
+
+        if (getCashPrior() < reduceAmount) {
+            return  -1;
+        }
+
+
+        if (reduceAmount > totalReserves) {
+            return -1;
+        }
+
+        let totalReservesNew = totalReserves - reduceAmount;
+        require(totalReservesNew <= totalReserves, "reduce reserves unexpected underflow");
+
+        totalReserves = totalReservesNew;
+
+        doTransferOut(admin, reduceAmount);
+
+        //emit
+
+        MathError.NO_ERROR
+    }
+
+    pub fn _setInterestRateModel(newInterestRateModel: InterestRateModel) -> u248 {
+        let mErr = accrueInterest();
+        if(mErr != MathError.NO_ERROR) {
+            return -1;
+        }
+
+        _setInterestRateModelFresh(newInterestRateModel)
+    }
+
+
+    fn _setInterestRateModelFresh(newInterestRateModel: InterestRateModel) -> u248 {
+        if(msg.sender != admin) {
+            return -1;
+        }
+
+        if (accrualBlockNumber != getBlockNumber()) {
+            return -1;
+        }
+
+        require(newInterestRateModel.isInterestRateModel(), "marker method returned false");
+
+
+        let oldInterestRateModel = interestRateModel;
+
+        interestRateModel = newInterestRateModel;
+
+        //emit
+
+        MathError.NO_ERROR
+    }
+
+    
+
+
+    fn doTransferIn(mut self, addressFrom: Address, amount : u248) -> u248{
+        0
+    }
+
+    fn doTransferOut(mut self, addressFrom : Address, amount: u248) ->{
+
+    }
+
+    fn getCashPrior(mut self) -> u248 {
+        0
+    }
+
+
+
 }
 
 
